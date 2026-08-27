@@ -6,6 +6,10 @@ import (
 	"go-chatbot/internal/database"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
@@ -22,6 +26,15 @@ func main() {
 		log.Fatal("error while loading the .env file")
 	}
 
+	router := mux.NewRouter()
+
+	router.HandleFunc("/", homehandler).Methods("GET")
+
+	server := &http.Server{
+		Addr:    ":8085",
+		Handler: router,
+	}
+
 	// Connect to PostgreSQL
 	db, err := database.Connect()
 	if err != nil {
@@ -31,13 +44,34 @@ func main() {
 
 	fmt.Println("🐘 PostgreSQL connected successfully")
 
-	router := mux.NewRouter()
+	//start the server in sepreate goroutine
+	go func() {
+		fmt.Println("🤖 ChatBot server started on :8085")
 
-	router.HandleFunc("/", homehandler).Methods("GET")
-	fmt.Println("🤖 ChatBot server started on :8085")
+		err := server.ListenAndServe()
+		if err != nil && err != http.ErrServerClosed {
+			log.Fatalf("server error: %v", err)
+		}
 
-	err = http.ListenAndServe(":8085", router)
-	if err != nil {
-		log.Fatal("Error starting server: ", err)
+	}()
+
+	// wait for shutdown signal
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	<-stop
+
+	fmt.Println(" \n🛑Shutting down the server...")
+
+	//give active requests some time to finish
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		log.Fatalf("Graceful shutdown failed: %v", err)
+		return
 	}
+
+	fmt.Println("✅ Server gracefully stopped")
+
 }
