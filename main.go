@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"go-chatbot/internal/controllers"
 	"go-chatbot/internal/database"
+	"go-chatbot/internal/routes"
 	"log"
 	"net/http"
 	"os"
@@ -11,7 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 )
 
@@ -26,15 +27,6 @@ func main() {
 		log.Fatal("error while loading the .env file")
 	}
 
-	router := mux.NewRouter()
-
-	router.HandleFunc("/", homehandler).Methods("GET")
-
-	server := &http.Server{
-		Addr:    ":8085",
-		Handler: router,
-	}
-
 	// Connect to PostgreSQL
 	db, err := database.Connect()
 	if err != nil {
@@ -43,6 +35,17 @@ func main() {
 	defer db.Close(context.Background())
 
 	fmt.Println("🐘 PostgreSQL connected successfully")
+
+	authController := &controllers.AuthController{
+		DB: db,
+	}
+
+	router := routes.SetupRoute(authController)
+
+	server := &http.Server{
+		Addr:    ":8085",
+		Handler: router,
+	}
 
 	//start the server in sepreate goroutine
 	go func() {
