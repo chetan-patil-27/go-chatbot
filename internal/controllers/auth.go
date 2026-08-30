@@ -2,12 +2,14 @@ package controllers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/mail"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -87,6 +89,12 @@ func (ac *AuthController) Register(w http.ResponseWriter, r *http.Request) {
 	)
 
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			http.Error(w, "username or email already exists", http.StatusConflict)
+			return
+		}
+
 		fmt.Println("Database error:", err)
 		http.Error(w, "failed to register user", http.StatusInternalServerError)
 		return
