@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go-chatbot/internal/models"
+	"go-chatbot/internal/utils"
 	"net/http"
 	"net/mail"
 	"strings"
@@ -103,6 +105,62 @@ func (ac *AuthController) Register(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{
 		"message": "User registered successfully",
+	})
+
+}
+
+type LoginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+func (ac *AuthController) Login(w http.ResponseWriter, r *http.Request) {
+	var req LoginRequest
+
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, "invalid request payload", http.StatusBadRequest)
+		return
+	}
+
+	var user models.User
+	err = ac.DB.QueryRow(
+		r.Context(),
+		`SELECT id,username,email,password_hash FROM users WHERE email=$1`, req.Email,
+	).Scan(&user.ID, &user.Username, &user.Email, &user.PasswordHash)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Error(w, "invalid email or password", http.StatusUnauthorized)
+			return
+		}
+
+		fmt.Println("Database err :", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	//password verifications
+	err = bcrypt.CompareHashAndPassword(
+		[]byte(user.PasswordHash),
+		[]byte(req.Password),
+	)
+	if err != nil {
+		http.Error(w, "Invalid email or password", http.StatusUnauthorized)
+		return
+	}
+
+	token, err := utils.GenerateToken(user.ID, user.Username)
+	if err != nil {
+		fmt.Println("JWT generation error: ", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Login successful",
+		"token":   token,
 	})
 
 }

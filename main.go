@@ -40,7 +40,19 @@ func main() {
 		DB: db,
 	}
 
-	router := routes.SetupRoute(authController)
+	chatController := &controllers.ChatController{
+		DB: db,
+	}
+
+	messageController := &controllers.MessageController{
+		DB: db,
+	}
+
+	router := routes.SetupRoute(
+		authController,
+		chatController,
+		messageController,
+	)
 
 	server := &http.Server{
 		Addr:    ":8085",
