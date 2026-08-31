@@ -3,6 +3,7 @@ package controllers
 import (
 	"encoding/json"
 	"fmt"
+	"go-chatbot/internal/bot"
 	"go-chatbot/internal/middleware"
 	"go-chatbot/internal/models"
 	"net/http"
@@ -19,6 +20,11 @@ type MessageController struct {
 
 type SendMessageRequest struct {
 	Message string `json:"message"`
+}
+
+type SendMessageResponse struct {
+	UserMessage models.Message `json:"user_message"`
+	BotMessage  models.Message `json:"bot_message"`
 }
 
 func (c *MessageController) SendMessage(w http.ResponseWriter, r *http.Request) {
@@ -57,8 +63,18 @@ func (c *MessageController) SendMessage(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	//start transaction here
+	tx, err := c.DB.Begin(r.Context())
+	if err != nil {
+		http.Error(w, "failed to start transaction", http.StatusInternalServerError)
+		return
+	}
+
+	// Rollback automatically if we don't reach Commit()
+	defer tx.Rollback(r.Context())
+
 	// Insert message only if the chat belongs to the authenticated user
-	var message models.Message
+	var userMessage models.Message
 
 	query := `
 		INSERT INTO messages (chat_id, sender, message)
@@ -76,11 +92,11 @@ func (c *MessageController) SendMessage(w http.ResponseWriter, r *http.Request) 
 		userID,
 		req.Message,
 	).Scan(
-		&message.ID,
-		&message.ChatID,
-		&message.Sender,
-		&message.Message,
-		&message.CreatedAt,
+		&userMessage.ID,
+		&userMessage.ChatID,
+		&userMessage.Sender,
+		&userMessage.Message,
+		&userMessage.CreatedAt,
 	)
 
 	if err != nil {
@@ -89,13 +105,54 @@ func (c *MessageController) SendMessage(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 
-		http.Error(w, "Failed to save message", http.StatusInternalServerError)
+		http.Error(w, "Failed to save user message", http.StatusInternalServerError)
 		return
+	}
+
+	// genarate bot responce here
+	botResponse := bot.GetResponse(req.Message)
+
+	//save bot message
+	var botMessage models.Message
+
+	err = tx.QueryRow(
+		r.Context(),
+		`
+		INSERT INTO messages (chat_id, sender, message)
+		VALUES ($1, 'bot', $2)
+		RETURNING id, chat_id, sender, message, created_at
+		`,
+		chatID,
+		botResponse,
+	).Scan(
+		&botMessage.ID,
+		&botMessage.ChatID,
+		&botMessage.Sender,
+		&botMessage.Message,
+		&botMessage.CreatedAt,
+	)
+
+	if err != nil {
+		http.Error(w, "failed to save bot message", http.StatusInternalServerError)
+		return
+	}
+
+	//commit transaction
+	err = tx.Commit(r.Context())
+	if err != nil {
+		http.Error(w, "failed to commite messages", http.StatusInternalServerError)
+		return
+	}
+
+	// return both message
+	response := SendMessageResponse{
+		UserMessage: userMessage,
+		BotMessage:  botMessage,
 	}
 
 	// Return saved message
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 
-	json.NewEncoder(w).Encode(message)
+	json.NewEncoder(w).Encode(response)
 }
