@@ -64,3 +64,51 @@ func (c *ChatController) CreateChat(w http.ResponseWriter, r *http.Request) {
 
 	json.NewEncoder(w).Encode(chat)
 }
+
+func (c *ChatController) GetChats(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(middleware.UserIDKey).(int64)
+	if !ok {
+		http.Error(w, "user id not found", http.StatusUnauthorized)
+		return
+	}
+
+	query := `
+			SELECT id, user_id, title, created_at FROM chats 
+			WHERE user_id = $1 ORDER BY created_at DESC
+			`
+	rows, err := c.DB.Query(r.Context(), query, userID)
+	if err != nil {
+		http.Error(w, "faild to fatch chats", http.StatusInternalServerError)
+		return
+	}
+
+	defer rows.Close()
+
+	var chats []models.Chat
+
+	for rows.Next() {
+		var chat models.Chat
+
+		err := rows.Scan(
+			&chat.ID,
+			&chat.UserID,
+			&chat.Title,
+			&chat.CreatedAt,
+		)
+
+		if err != nil {
+			http.Error(w, "faild to read chats", http.StatusInternalServerError)
+			return
+		}
+
+		chats = append(chats, chat)
+	}
+
+	if err := rows.Err(); err != nil {
+		http.Error(w, "faild to read chats", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(chats)
+}

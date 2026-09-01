@@ -156,3 +156,93 @@ func (c *MessageController) SendMessage(w http.ResponseWriter, r *http.Request) 
 
 	json.NewEncoder(w).Encode(response)
 }
+
+func (c *MessageController) GetMessages(w http.ResponseWriter, r *http.Request) {
+	userId, ok := r.Context().Value(middleware.UserIDKey).(int64)
+	if !ok {
+		http.Error(w, "user id not found", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(r)
+
+	chatID, err := strconv.ParseInt(vars["chat_id"], 10, 64)
+	if err != nil {
+		http.Error(w, "invalid chat id", http.StatusBadRequest)
+		return
+	}
+
+	// Check whether the chat belongs to the authenticated user
+	var ownerID int64
+
+	err = c.DB.QueryRow(
+		r.Context(),
+		`SELECT user_id from chats WHERE id = $1`,
+		chatID,
+	).Scan(&ownerID)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			http.Error(w, "chat not found", http.StatusNotFound)
+			return
+		}
+
+		http.Error(w, "failed to check ownership", http.StatusInternalServerError)
+		return
+	}
+
+	if ownerID != userId {
+		http.Error(w, "access denied", http.StatusForbidden)
+		return
+	}
+
+	// Fetch messages
+	query := `
+	SELECT id, chat_id, sender, message, created_at
+		FROM messages
+		WHERE chat_id = $1
+		ORDER BY created_at ASC
+	`
+
+	rows, err := c.DB.Query(
+		r.Context(),
+		query,
+		chatID,
+	)
+
+	if err != nil {
+		fmt.Println("GetMessages DB error:", err)
+		http.Error(w, "failed to fatch messages", http.StatusInternalServerError)
+		return
+	}
+
+	defer rows.Close()
+
+	messages := make([]models.Message, 0)
+
+	for rows.Next() {
+		var message models.Message
+		err := rows.Scan(
+			&message.ID,
+			&message.ChatID,
+			&message.Sender,
+			&message.Message,
+			&message.CreatedAt,
+		)
+
+		if err != nil {
+			http.Error(w, "failed to read messages", http.StatusInternalServerError)
+			return
+		}
+		messages = append(messages, message)
+	}
+
+	if err = rows.Err(); err != nil {
+		http.Error(w, "failed to read messages", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(messages)
+
+}

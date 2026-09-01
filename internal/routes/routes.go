@@ -12,6 +12,7 @@ func SetupRoute(
 	authController *controllers.AuthController,
 	chatController *controllers.ChatController,
 	messageController *controllers.MessageController,
+
 ) *mux.Router {
 	router := mux.NewRouter()
 
@@ -44,5 +45,20 @@ func SetupRoute(
 		),
 	).Methods(http.MethodPost)
 
+	router.Handle(
+		"/api/chats",
+		middleware.JWTMiddleware(
+			http.HandlerFunc(chatController.GetChats),
+		),
+	).Methods(http.MethodGet)
+
+	router.Handle(
+		"/api/chats/{chat_id}/messages",
+		middleware.JWTMiddleware(
+			http.HandlerFunc(messageController.GetMessages),
+		),
+	).Methods(http.MethodGet)
+
 	return router
+
 }
