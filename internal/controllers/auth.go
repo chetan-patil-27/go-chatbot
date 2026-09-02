@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/mail"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -186,6 +187,84 @@ func (ac *AuthController) Login(w http.ResponseWriter, r *http.Request) {
 		"message":       "Login successful",
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
+	})
+
+}
+
+type RefreshRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+func (ac *AuthController) Refresh(w http.ResponseWriter, r *http.Request) {
+	var req RefreshRequest
+
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.RefreshToken == "" {
+		http.Error(w, "Refresh token is required", http.StatusBadRequest)
+		return
+	}
+
+	tokenHash := utils.HashRefreshToken(req.RefreshToken)
+
+	var userID int64
+	var expiresAt time.Time
+	var revokedAt *time.Time
+
+	err = ac.DB.QueryRow(
+		r.Context(),
+		`SELECT user_id,expires_at,revoked_at FROM
+		refresh_tokens WHERE token_hash=$1`,
+		tokenHash,
+	).Scan(&userID, &expiresAt, &revokedAt)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Error(w, "invalid refresh token", http.StatusUnauthorized)
+			return
+		}
+
+		fmt.Println("Refresh token database error:", err)
+		http.Error(w, "Invalid refresh token", http.StatusUnauthorized)
+		return
+	}
+
+	if revokedAt != nil {
+		http.Error(w, "Refresh token has been revoked", http.StatusUnauthorized)
+		return
+	}
+
+	if time.Now().After(expiresAt) {
+		http.Error(w, "Refresh token has expired", http.StatusUnauthorized)
+		return
+	}
+
+	var username string
+
+	err = ac.DB.QueryRow(
+		r.Context(),
+		`SELECT username FROM users WHERE id=$1`, userID,
+	).Scan(&username)
+
+	if err != nil {
+		http.Error(w, "user not found", http.StatusUnauthorized)
+		return
+	}
+
+	accessToken, err := utils.GenerateToken(userID, username)
+	if err != nil {
+		fmt.Println("JWT generation error:", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"access_token": accessToken,
 	})
 
 }
