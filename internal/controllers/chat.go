@@ -5,7 +5,9 @@ import (
 	"go-chatbot/internal/middleware"
 	"go-chatbot/internal/models"
 	"net/http"
+	"strconv"
 
+	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -111,4 +113,40 @@ func (c *ChatController) GetChats(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(chats)
+}
+
+func (c *ChatController) DeleteChat(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(middleware.UserIDKey).(int64)
+	if !ok {
+		http.Error(w, "user id not found", http.StatusUnauthorized)
+		return
+	}
+
+	vars := mux.Vars(r)
+
+	chatID, err := strconv.ParseInt(vars["chat_id"], 10, 64)
+	if err != nil {
+		http.Error(w, "invalid chat id", http.StatusBadRequest)
+		return
+	}
+
+	result, err := c.DB.Exec(
+		r.Context(),
+		`DELETE FROM chats WHERE id = $1 and user_id = $2`,
+		chatID,
+		userID,
+	)
+
+	if err != nil {
+		http.Error(w, "failed to delete chat", http.StatusInternalServerError)
+		return
+
+	}
+
+	if result.RowsAffected() == 0 {
+		http.Error(w, "chat not found or access denied", http.StatusForbidden)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

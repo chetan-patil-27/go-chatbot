@@ -59,6 +59,13 @@ func SetupRoute(
 		),
 	).Methods(http.MethodGet)
 
+	router.Handle(
+		"/api/chats/{chat_id}",
+		middleware.JWTMiddleware(
+			http.HandlerFunc(chatController.DeleteChat),
+		),
+	).Methods(http.MethodDelete)
+
 	return router
 
 }

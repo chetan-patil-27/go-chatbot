@@ -52,7 +52,7 @@ func validateRegisterRequest(req RegisterRequest) string {
 	}
 
 	if len(req.Password) < 8 {
-		return "password must be at least 6 characters"
+		return "password must be at least 8 characters"
 	}
 
 	return ""
@@ -150,17 +150,42 @@ func (ac *AuthController) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := utils.GenerateToken(user.ID, user.Username)
+	accessToken, err := utils.GenerateToken(user.ID, user.Username)
 	if err != nil {
 		fmt.Println("JWT generation error: ", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
+	refreshToken, err := utils.GenerateRefreshToken()
+	if err != nil {
+		fmt.Println("Refresh token generation error : ", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// saving hashed refresh token in the database
+	refreshTokeHash := utils.HashRefreshToken(refreshToken)
+
+	_, err = ac.DB.Exec(
+		r.Context(),
+		`INSERT INTO refresh_tokens(user_id,token_hash,expires_at) 
+		 VALUES($1,$2,NOW() + INTERVAL '7 days')`,
+		user.ID,
+		refreshTokeHash,
+	)
+
+	if err != nil {
+		fmt.Println("refresh token database error : ", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
-		"message": "Login successful",
-		"token":   token,
+		"message":       "Login successful",
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
 	})
 
 }
