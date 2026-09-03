@@ -67,11 +67,6 @@ func SetupRoute(
 		),
 	).Methods(http.MethodDelete)
 
-	router.HandleFunc(
-		"/refresh",
-		authController.Refresh,
-	).Methods(http.MethodPost)
-
 	return router
 
 }
