@@ -19,6 +19,7 @@ func SetupRoute(
 	router.HandleFunc("/register", authController.Register).Methods(http.MethodPost)
 	router.HandleFunc("/login", authController.Login).Methods(http.MethodPost)
 	router.HandleFunc("/refresh", authController.Refresh).Methods(http.MethodPost)
+	router.HandleFunc("/logout", authController.Logout).Methods(http.MethodPost)
 
 	router.Handle(
 		"/api/test",

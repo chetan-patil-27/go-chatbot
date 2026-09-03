@@ -268,3 +268,48 @@ func (ac *AuthController) Refresh(w http.ResponseWriter, r *http.Request) {
 	})
 
 }
+
+type LogoutRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+func (ac *AuthController) Logout(w http.ResponseWriter, r *http.Request) {
+	var req LogoutRequest
+
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.RefreshToken == "" {
+		http.Error(w, "refresh token is  required", http.StatusBadRequest)
+		return
+	}
+
+	tokenHash := utils.HashRefreshToken(req.RefreshToken)
+
+	commandTag, err := ac.DB.Exec(
+		r.Context(),
+		`UPDATE refresh_tokens SET revoked_at=NOW() 
+		WHERE token_hash=$1 AND revoked_at IS NULL`,
+		tokenHash,
+	)
+
+	if err != nil {
+		fmt.Println("logoute database error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if commandTag.RowsAffected() == 0 {
+		http.Error(w, "refresh token not found or already revoked", http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Logout Successfully",
+	})
+
+}
